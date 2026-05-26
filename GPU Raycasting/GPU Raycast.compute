@@ -1,0 +1,105 @@
+#pragma kernel rayIntersection
+
+struct Triangle {
+    int triangleIndex;
+
+    float3 a;
+    float3 b;
+    float3 c;
+    float3 normalA;
+    float3 normalB;
+    float3 normalC;
+    float2 uvA;
+    float2 uvB;
+    float2 uvC;
+};
+
+struct HitInfo {
+    int hitRegistered;
+    float distance;
+    float3 hitPoint;
+    int triangleIndex;
+    float3 barycentricCoordinates;
+    float3 normal;
+    float2 uv;
+
+    void RegisterHit(float newDistance, float3 newHitPoint,
+        int newTriangleIndex, float3 newBarycentricCoordinates,
+        float3 newNormal, float2 newUV) {
+        hitRegistered = 1;
+        distance = newDistance;
+        hitPoint = newHitPoint;
+        triangleIndex = newTriangleIndex;
+        barycentricCoordinates = newBarycentricCoordinates;
+        normal = newNormal;
+        uv = newUV;
+    }
+};
+
+float4x4 localToWorldMatrix;
+float maxLocalDistance;
+float3 localRayOrigin;
+float3 localRayDirection;
+
+StructuredBuffer<Triangle> meshTriangles;
+int meshTrianglesCount;
+
+int trianglesPerThread = 20;
+AppendStructuredBuffer<HitInfo> hitInfo;
+
+#define NUM_THREADS 512
+
+inline int getFlattenedIndex(uint3 id, float3 dimensions) {
+    return id.x + id.y * dimensions.x + id.z * dimensions.x * dimensions.y;
+}
+
+[numthreads(NUM_THREADS, 1, 1)]
+void rayIntersection(uint3 id : SV_DispatchThreadID) {
+    int threadIndex = getFlattenedIndex(id, float3(NUM_THREADS, 1, 1));
+    if (threadIndex >= meshTrianglesCount)
+        return;
+    
+    Triangle tri = meshTriangles[threadIndex];
+
+    float3 planeNormal = normalize(cross(tri.b - tri.a, tri.c - tri.a));
+    float normalDotDir = dot(planeNormal, localRayDirection);
+
+    if (normalDotDir < 0) {
+        float D = - dot(planeNormal, tri.a);
+        float t = - (dot(planeNormal, localRayOrigin) + D) / normalDotDir;
+
+        if (t >= 0 && t < maxLocalDistance) {
+            float3 localHit = localRayOrigin + t * localRayDirection;
+
+            //Perpendiculars to each side of the triangle, in the order of sides AB, BC, and CA
+            float3 p1 = cross(tri.a - tri.b, planeNormal);
+            float3 p2 = cross(tri.b - tri.c, planeNormal);
+            float3 p3 = cross(tri.c - tri.a, planeNormal);
+            
+            float3 d = float3(
+                dot(p1, localHit - (tri.a + tri.b) / 2),
+                dot(p2, localHit - (tri.b + tri.c) / 2),
+                dot(p3, localHit - (tri.c + tri.a) / 2)
+            );
+
+            bool insideTriangle = d.x >= 0 && d.y >= 0 && d.z >= 0;
+            if (insideTriangle) {
+                float sum = d.x + d.y + d.z;
+                float3 bCoords = float3(d.y / sum, d.z / sum, 0);
+                bCoords.z = 1 - bCoords.x - bCoords.y;
+
+                //NOTE: We return the hit info back in world space.
+                HitInfo newResult;
+                newResult.RegisterHit(
+                    length(mul(localToWorldMatrix, float4(t * localRayDirection.xyz, 0)).xyz),
+                    mul(localToWorldMatrix, float4(localHit, 1)).xyz,
+                    tri.triangleIndex,
+                    bCoords,
+                    normalize(mul(localToWorldMatrix, float4(tri.normalA * bCoords.x + tri.normalB * bCoords.y + tri.normalC * bCoords.z, 0)).xyz),
+                    tri.uvA * bCoords.x + tri.uvB * bCoords.y + tri.uvC * bCoords.z
+                );
+                hitInfo.Append(newResult);
+            }
+        }
+    }
+}
