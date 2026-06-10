@@ -1,0 +1,416 @@
+#pragma kernel sphereIntersection
+
+struct Triangle {
+    int triangleIndex;
+
+    float3 a;
+    float3 b;
+    float3 c;
+    float3 normalA;
+    float3 normalB;
+    float3 normalC;
+    float2 uvA;
+    float2 uvB;
+    float2 uvC;
+};
+
+struct HitInfo {
+    int hitRegistered;
+    float distance;
+    float3 hitPoint;
+    int triangleIndex;
+    float3 barycentricCoordinates;
+    float3 normal;
+    float2 uv;
+
+    void RegisterHit(
+        float newDistance,
+        float3 newHitPoint,
+        int newTriangleIndex,
+        float3 newBarycentricCoordinates,
+        float3 newNormal,
+        float2 newUV
+    ) {
+        hitRegistered = 1;
+        distance = newDistance;
+        hitPoint = newHitPoint;
+        triangleIndex = newTriangleIndex;
+        barycentricCoordinates = newBarycentricCoordinates;
+        normal = newNormal;
+        uv = newUV;
+    }
+};
+
+float4x4 localToWorldMatrix;
+float maxLocalDistance;
+float localRadius;
+float3 localRayOrigin;
+float3 localRayDirection;
+
+StructuredBuffer<Triangle> meshTriangles;
+int meshTrianglesCount;
+
+AppendStructuredBuffer<HitInfo> hitInfo;
+
+#define NUM_THREADS 512
+#define EPSILON 0.00001
+
+float3 safeNormalize(float3 v) {
+    float len = length(v);
+    if (len <= EPSILON)
+        return float3(0, 0, 1);
+    return v / len;
+}
+
+bool isPointInTriangle(float3 p, Triangle tri, float3 planeNormal, out float3 barycentricCoordinates) {
+    float normalDotDir = dot(planeNormal, localRayDirection);
+    float D = - dot(planeNormal, tri.a);
+    float t = - (dot(planeNormal, localRayOrigin) + D) / normalDotDir;
+
+    if (t >= 0 && t < maxLocalDistance) {
+        float3 localHit = localRayOrigin + t * localRayDirection;
+
+        //Perpendiculars to each side of the triangle, in the order of sides AB, BC, and CA
+        float3 p1 = cross(tri.a - tri.b, planeNormal);
+        float3 p2 = cross(tri.b - tri.c, planeNormal);
+        float3 p3 = cross(tri.c - tri.a, planeNormal);
+
+        float3 d = float3(
+            dot(p1, localHit - (tri.a + tri.b) / 2),
+            dot(p2, localHit - (tri.b + tri.c) / 2),
+            dot(p3, localHit - (tri.c + tri.a) / 2)
+        );
+
+        bool insideTriangle = d.x >= EPSILON && d.y >= EPSILON && d.z >= EPSILON;
+        if (insideTriangle) {
+            float sum = d.x + d.y + d.z;
+            barycentricCoordinates = float3(d.y / sum, d.z / sum, 0);
+            barycentricCoordinates.z = 1 - barycentricCoordinates.x - barycentricCoordinates.y;
+            return true;
+        }
+    }
+    barycentricCoordinates = float3(0, 0, 0);
+    return false;
+}
+
+float3 closestPointOnSegment(float3 p, float3 a, float3 b, out float segmentT) {
+    float3 ab = b - a;
+    float abLenSq = dot(ab, ab);
+
+    if (abLenSq <= EPSILON) {
+        segmentT = 0;
+        return a;
+    }
+
+    segmentT = saturate(dot(p - a, ab) / abLenSq);
+    return a + segmentT * ab;
+}
+
+bool tryRaySphere(
+    float3 rayOrigin,
+    float3 rayDirection,
+    float3 sphereCenter,
+    float sphereRadius,
+    out float t
+) {
+    t = 0;
+    float3 oc = rayOrigin - sphereCenter;
+
+    float a = dot(rayDirection, rayDirection);
+    float b = 2.0 * dot(oc, rayDirection);
+    float c = dot(oc, oc) - sphereRadius * sphereRadius;
+
+    float discriminant = b * b - 4 * a * c;
+    if (discriminant < 0)
+        return false;
+
+    float sqrtDiscriminant = sqrt(discriminant);
+    float invDenom = 0.5 / a;
+
+    float t0 = (-b - sqrtDiscriminant) * invDenom;
+    float t1 = (-b + sqrtDiscriminant) * invDenom;
+
+    if (t0 >= 0) {
+        t = t0;
+        return true;
+    }
+
+    if (t1 >= 0) {
+        t = t1;
+        return true;
+    }
+    return false;
+}
+
+bool tryRayCapsule(
+    float3 rayOrigin,
+    float3 rayDirection,
+    float3 a,
+    float3 b,
+    float radius,
+    out float t,
+    out float segmentT
+) {
+    t = 0;
+    segmentT = 0;
+
+    float3 ba = b - a;
+    float3 oa = rayOrigin - a;
+
+    float baba = dot(ba, ba);
+    float bard = dot(ba, rayDirection);
+    float baoa = dot(ba, oa);
+    float rdoa = dot(rayDirection, oa);
+    float oaoa = dot(oa, oa);
+
+    float A = baba - bard * bard;
+    float B = baba * rdoa - baoa * bard;
+    float C = baba * oaoa - baoa * baoa - radius * radius * baba;
+
+    if (abs(A) > EPSILON) {
+        float h = B * B - A * C;
+        if (h >= 0) {
+            float candidateT = (-B - sqrt(h)) / A;
+            float y = baoa + candidateT * bard;
+
+            if (candidateT >= 0 && y >= 0 && y <= baba) {
+                t = candidateT;
+                segmentT = saturate(y / baba);
+                return true;
+            }
+        }
+    }
+
+    float sphereT;
+    bool hitA = tryRaySphere(rayOrigin, rayDirection, a, radius, sphereT);
+    float bestT = 1e30;
+    float bestSegmentT = 0;
+    bool hit = false;
+
+    if (hitA && sphereT < bestT) {
+        bestT = sphereT;
+        bestSegmentT = 0;
+        hit = true;
+    }
+    bool hitB = tryRaySphere(rayOrigin, rayDirection, b, radius, sphereT);
+    if (hitB && sphereT < bestT) {
+        bestT = sphereT;
+        bestSegmentT = 1;
+        hit = true;
+    }
+    if (hit) {
+        t = bestT;
+        segmentT = bestSegmentT;
+        return true;
+    }
+    return false;
+}
+
+void registerCandidateHit(
+    Triangle tri,
+    float candidateT,
+    float3 candidateCenter,
+    float3 candidateSurfacePoint,
+    float3 candidateBarycentrics,
+    float3 candidateNormal,
+    inout bool foundHit,
+    inout float bestT,
+    inout HitInfo bestHit
+) {
+    if (candidateT < 0 || candidateT >= bestT || candidateT >= maxLocalDistance)
+        return;
+
+    float2 interpolatedUv =
+        tri.uvA * candidateBarycentrics.x +
+        tri.uvB * candidateBarycentrics.y +
+        tri.uvC * candidateBarycentrics.z;
+
+    float3 worldCenterOffset = mul(localToWorldMatrix, float4(candidateT * localRayDirection, 0)).xyz;
+    float3 worldHitPoint = mul(localToWorldMatrix, float4(candidateSurfacePoint, 1)).xyz;
+    float3 worldNormal = safeNormalize(mul(localToWorldMatrix, float4(candidateNormal, 0)).xyz);
+
+    bestT = candidateT;
+    foundHit = true;
+    bestHit.RegisterHit(
+        length(worldCenterOffset),
+        worldHitPoint,
+        tri.triangleIndex,
+        candidateBarycentrics,
+        worldNormal,
+        interpolatedUv
+    );
+}
+
+bool trySpherecastTriangle(Triangle tri, out HitInfo finalHit) {
+    finalHit.hitRegistered = 0;
+
+    bool foundHit = false;
+    float bestT = maxLocalDistance;
+
+    float3 planeNormal = safeNormalize(cross(tri.b - tri.a, tri.c - tri.a));
+    float normalDotDir = dot(planeNormal, localRayDirection);
+
+    // Face hit
+    if (normalDotDir < -EPSILON) {
+        float signedDistanceToPlane = dot(planeNormal, localRayOrigin - tri.a);
+        float tFace = (signedDistanceToPlane - localRadius) / (-normalDotDir);
+
+        if (tFace >= 0 && tFace < bestT && tFace < maxLocalDistance) {
+            float3 sphereCenterAtHit = localRayOrigin + tFace * localRayDirection;
+            float3 surfacePoint = sphereCenterAtHit - planeNormal * localRadius;
+
+            float3 barycentrics;
+            if (isPointInTriangle(surfacePoint, tri, planeNormal, barycentrics)) {
+                registerCandidateHit(
+                    tri,
+                    tFace,
+                    sphereCenterAtHit,
+                    surfacePoint,
+                    barycentrics,
+                    planeNormal,
+                    foundHit,
+                    bestT,
+                    finalHit
+                );
+            }
+        }
+    }
+
+    // Edge hits
+    {
+        float tEdge, edgeT;
+        float3 sphereCenterAtHit;
+        float3 closestPoint;
+        float3 normal;
+        float3 barycentrics;
+
+        if (tryRayCapsule(localRayOrigin, localRayDirection, tri.a, tri.b, localRadius, tEdge, edgeT)) {
+            sphereCenterAtHit = localRayOrigin + tEdge * localRayDirection;
+            closestPoint = lerp(tri.a, tri.b, edgeT);
+            normal = safeNormalize(sphereCenterAtHit - closestPoint);
+            barycentrics = float3(1.0 - edgeT, edgeT, 0);
+
+            registerCandidateHit(
+                tri,
+                tEdge,
+                sphereCenterAtHit,
+                closestPoint,
+                barycentrics,
+                normal,
+                foundHit,
+                bestT,
+                finalHit
+            );
+        }
+
+        if (tryRayCapsule(localRayOrigin, localRayDirection, tri.b, tri.c, localRadius, tEdge, edgeT)) {
+            sphereCenterAtHit = localRayOrigin + tEdge * localRayDirection;
+            closestPoint = lerp(tri.b, tri.c, edgeT);
+            normal = safeNormalize(sphereCenterAtHit - closestPoint);
+            barycentrics = float3(0, 1.0 - edgeT, edgeT);
+
+            registerCandidateHit(
+                tri,
+                tEdge,
+                sphereCenterAtHit,
+                closestPoint,
+                barycentrics,
+                normal,
+                foundHit,
+                bestT,
+                finalHit
+            );
+        }
+
+        if (tryRayCapsule(localRayOrigin, localRayDirection, tri.c, tri.a, localRadius, tEdge, edgeT)) {
+            sphereCenterAtHit = localRayOrigin + tEdge * localRayDirection;
+            closestPoint = lerp(tri.c, tri.a, edgeT);
+            normal = safeNormalize(sphereCenterAtHit - closestPoint);
+            barycentrics = float3(edgeT, 0, 1.0 - edgeT);
+
+            registerCandidateHit(
+                tri,
+                tEdge,
+                sphereCenterAtHit,
+                closestPoint,
+                barycentrics,
+                normal,
+                foundHit,
+                bestT,
+                finalHit
+            );
+        }
+    }
+
+    // Vertex hits
+    {
+        float tVertex;
+        float3 sphereCenterAtHit;
+        float3 normal;
+        if (tryRaySphere(localRayOrigin, localRayDirection, tri.a, localRadius, tVertex)) {
+            sphereCenterAtHit = localRayOrigin + tVertex * localRayDirection;
+            normal = safeNormalize(sphereCenterAtHit - tri.a);
+
+            registerCandidateHit(
+                tri,
+                tVertex,
+                sphereCenterAtHit,
+                tri.a,
+                float3(1, 0, 0),
+                normal,
+                foundHit,
+                bestT,
+                finalHit
+            );
+        }
+
+        if (tryRaySphere(localRayOrigin, localRayDirection, tri.b, localRadius, tVertex)) {
+            sphereCenterAtHit = localRayOrigin + tVertex * localRayDirection;
+            normal = safeNormalize(sphereCenterAtHit - tri.b);
+
+            registerCandidateHit(
+                tri,
+                tVertex,
+                sphereCenterAtHit,
+                tri.b,
+                float3(0, 1, 0),
+                normal,
+                foundHit,
+                bestT,
+                finalHit
+            );
+        }
+
+        if (tryRaySphere(localRayOrigin, localRayDirection, tri.c, localRadius, tVertex)) {
+            sphereCenterAtHit = localRayOrigin + tVertex * localRayDirection;
+            normal = safeNormalize(sphereCenterAtHit - tri.c);
+
+            registerCandidateHit(
+                tri,
+                tVertex,
+                sphereCenterAtHit,
+                tri.c,
+                float3(0, 0, 1),
+                normal,
+                foundHit,
+                bestT,
+                finalHit
+            );
+        }
+    }
+
+    return foundHit;
+}
+
+[numthreads(NUM_THREADS, 1, 1)]
+void sphereIntersection(uint3 id : SV_DispatchThreadID) {
+    int threadIndex = id.x;
+    if (threadIndex >= meshTrianglesCount)
+        return;
+
+    Triangle tri = meshTriangles[threadIndex];
+    HitInfo result;
+    if (trySpherecastTriangle(tri, result)) {
+        hitInfo.Append(result);
+    }
+}
