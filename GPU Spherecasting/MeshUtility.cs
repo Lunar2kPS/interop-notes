@@ -147,7 +147,7 @@ namespace Carlos {
             public Vector2[] uvs;
             public int[][] trianglesBySubmesh;
         }
-        public static async Task<Mesh> CombineAllMeshes(string combinedName, IReadOnlyCollection<MeshRenderer> renderers, bool recalculateNormalsIfMissing = true) {
+        public static async Task<Mesh> CombineAllMeshes(string combinedName, IReadOnlyCollection<MeshRenderer> renderers, Transform parent, bool recalculateNormalsIfMissing = true) {
             Mesh CreateEmptyMesh() {
                 Mesh result = new();
                 result.name = combinedName;
@@ -168,7 +168,7 @@ namespace Carlos {
                     Mesh sharedMesh = filter.sharedMesh;
                     if (sharedMesh != null) {
                         MeshData data = new MeshData() {
-                            transform = renderer.transform.localToWorldMatrix,
+                            transform = (parent == null) ? renderer.transform.localToWorldMatrix : parent.worldToLocalMatrix * renderer.transform.localToWorldMatrix, // NOTE: If non-null, the parent's worldToLocal basically inverses their transform effect on the vertices. AKA, the vertices are ALREADY being translated/rotated by its transform pos/rot, so let's cancel it out.
                             vertices = sharedMesh.vertices,
                             normals = sharedMesh.normals,
                             uvs = sharedMesh.uv,
