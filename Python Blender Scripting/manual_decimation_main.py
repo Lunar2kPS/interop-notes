@@ -10,13 +10,11 @@ COMMAND LINE USAGE:
 
 import argparse
 import logging
-import os
 import subprocess
 
 from pathlib import Path
 
 DEFAULT_BLENDER_LOG_FILE = "blender_output.log"
-
 
 def run_blender_subprocess(args: argparse.Namespace) -> int:
     logger = logging.getLogger(__name__)
@@ -25,16 +23,25 @@ def run_blender_subprocess(args: argparse.Namespace) -> int:
     blender_command = [
         args.blender_executable,
         "--background",
-        "--python", str(blender_script),
+        "--python", blender_script.as_posix(),
         "--",
-        "--input-file", str(Path(args.input_file)),
-        "--output-file", str(Path(args.output_file)),
-        "--decimation-ratio", str(args.decimation_ratio),
     ]
+    if hasattr(args, "input_file"):
+        blender_command.append("--input-file")
+        blender_command.append(Path(args.input_file).as_posix())
+    if hasattr(args, "output_file"):
+        blender_command.append("--output-file")
+        blender_command.append(Path(args.output_file).as_posix())
+    if hasattr(args, "input_folder"):
+        blender_command.append("--input-folder")
+        blender_command.append(Path(args.input_folder).as_posix())
+    if hasattr(args, "output_folder"):
+        blender_command.append("--output-folder")
+        blender_command.append(Path(args.output_folder).as_posix())
+
     blender_log_file = args.blender_log_file
-
-    logger.info("Launching Blender subprocess for " + (args.input_file or ""))
-
+    logger.info("Launching Blender subprocess:")
+    logger.info(blender_command)
     blender_log_file.parent.mkdir(parents=True, exist_ok=True)
     with open(blender_log_file, "w", encoding="utf-8") as fh:
         completed_process = subprocess.run(
@@ -65,8 +72,6 @@ def main():
                         help="The input .glb file to process.")
     parser.add_argument("--output-file",
                         help="Where to write the output .glb file to. This will overwrite if the file already exists.")
-    parser.add_argument("--decimation-ratio", type=float, default=0.1,
-                        help="Defines the amount of triangles to leave behind, expressed as a percentage between 0 and 1. 0.1 = 10%% of original, 0.5 = 50%% of original (typical: 0.1-1.0).")
     parser.add_argument("--input-folder",
                         help="Optional: process all .glb files in this folder (non-recursive).")
     parser.add_argument("--output-folder",
@@ -92,7 +97,7 @@ def main():
         logger.info("Output folder path missing while input folder provided. Defaulting to the input folder path plus a '_D' suffix for output.")
 
     if fallback_file:
-        args.output_file = (args.input_file or "") + "_D"
+        args.output_file = str(Path(args.input_file).with_name(f"{Path(args.input_file).stem}_D{Path(args.input_file).suffix}"))
     if fallback_folder:
         args.output_folder = (args.input_folder or "") + "_D"
 
@@ -101,22 +106,26 @@ def main():
     has_folder_pair = bool(args.input_folder and args.output_folder)
     if not has_file_pair and not has_folder_pair:
         parser.error("Provide either --input-file and --output-file, or --input-folder and --output-folder.")
+        return 1
 
     def make_namespace(input_file: Path, output_file: Path, log_file: Path):
         return argparse.Namespace(
             blender_executable="blender",
             blender_log_file=log_file,
             input_file=input_file.as_posix(),
-            output_file=output_file.as_posix(),
-            decimation_ratio=args.decimation_ratio,
+            output_file=output_file.as_posix()
         )
+
+    success_count = 0
+    total_count = 0
 
     # Process a single file pair
     if has_file_pair:
         ns = make_namespace(Path(args.input_file), Path(args.output_file), args.blender_log_file)
-        rc = run_blender_subprocess(ns)
-        if rc != 0:
-            raise SystemExit(rc)
+        return_code = run_blender_subprocess(ns)
+        total_count += 1
+        if return_code  == 0:
+            success_count += 1
 
     # Process a folder pair (non-recursive). Create per-file logs in the same folder as configured log file.
     if has_folder_pair:
@@ -132,10 +141,17 @@ def main():
                 out_file = out_dir / file.name
                 per_file_log = (base_log.parent / f"{base_name}_{file.stem}.log") if base_log.parent else Path(f"{base_name}_{file.stem}.log")
                 ns = make_namespace(file, out_file, per_file_log)
-                rc = run_blender_subprocess(ns)
-                if rc != 0:
-                    logger.error("Subprocess failed for %s (rc=%s)", file.as_posix(), rc)
-    raise SystemExit(0)
+                return_code = run_blender_subprocess(ns)
+                total_count += 1
+                if return_code == 0:
+                    success_count += 1
 
+    final_message = f"Completed decimation, with a success rate of {success_count} / {total_count}.\n"
+    if success_count >= 1:
+        logger.info(final_message)
+        return 0
+    else:
+        logger.error(final_message)
+        return 1
 
 main()
