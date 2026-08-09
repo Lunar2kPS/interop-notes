@@ -217,11 +217,13 @@ class SimpleBlenderProcessor:
                 if attr is not None:
                     joined_obj.data.attributes.remove(attr)
 
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
             bpy.ops.mesh.customdata_custom_splitnormals_clear()
+            bpy.ops.object.mode_set(mode="OBJECT")
 
             # And just do an auto-smooth by angle:
             bpy.ops.object.shade_auto_smooth(use_auto_smooth=True, angle=60 * (math.pi / 180))
-            bpy.ops.object.modifier_apply(modifier="Smooth by Angle")
             self.logger.info(f"Finished normals cleanup with {len(joined_obj.data.vertices)} vertices.")
         except Exception as e:
             self.logger.exception("Failed to clean up normals on %s.", joined_obj.name)
@@ -241,58 +243,65 @@ def main():
         format="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-
-    parser = argparse.ArgumentParser(description="(Helper Program) Blender Python Mesh Decimation Worker")
-    parser.add_argument("--input-file",
-                        help="The input .glb file to process.")
-    parser.add_argument("--output-file",
-                        help="Where to write the output .glb file to. This will overwrite if the file already exists.")
-    parser.add_argument("--input-folder",
-                        help="Optional: process all .glb files in this folder (non-recursive).")
-    parser.add_argument("--output-folder",
-                        help="Optional: output folder for files when using --input-folder.")
-    args = parser.parse_args(parse_script_args(sys.argv))
-
     logger = logging.getLogger(__name__)
-    logger.info("Starting (Helper Program) Blender Python Mesh Decimation.")
 
-    # Validate inputs: require either a file pair or a folder pair (or both)
-    has_file_pair = bool(args.input_file and args.output_file)
-    has_folder_pair = bool(args.input_folder and args.output_folder)
-    if not has_file_pair and not has_folder_pair:
-        parser.error("Provide either --input-file and --output-file, or --input-folder and --output-folder.")
-        return 1
+    try:
+        parser = argparse.ArgumentParser(description="(Helper Program) Blender Python Mesh Decimation Worker")
+        parser.add_argument("--input-file",
+                            help="The input .glb file to process.")
+        parser.add_argument("--output-file",
+                            help="Where to write the output .glb file to. This will overwrite if the file already exists.")
+        parser.add_argument("--input-folder",
+                            help="Optional: process all .glb files in this folder (non-recursive).")
+        parser.add_argument("--output-folder",
+                            help="Optional: output folder for files when using --input-folder.")
+        args = parser.parse_args(parse_script_args(sys.argv))
 
-    processor = SimpleBlenderProcessor()
+        logger.info("Starting (Helper Program) Blender Python Mesh Decimation.")
 
-    def process_one(in_path: Path, out_path: Path):
-        try:
-            logger.info("Processing %s -> %s", in_path.as_posix(), out_path.as_posix())
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            processor.clear_scene()
-            processor.import_glb(in_path)
-            processor.apply_decimation(in_path.stem)
-            processor.export_glb(out_path)
-            logger.info("Output to: %s", out_path.as_posix())
-        except Exception as e:
-            logger.exception("Failed processing %s: %s", in_path.as_posix(), e)
-            raise
+        # Validate inputs: require either a file pair or a folder pair (or both)
+        has_file_pair = bool(args.input_file and args.output_file)
+        has_folder_pair = bool(args.input_folder and args.output_folder)
+        if not has_file_pair and not has_folder_pair:
+            parser.error("Provide either --input-file and --output-file, or --input-folder and --output-folder.")
 
-    # If file pair provided, process it once
-    if has_file_pair:
-        process_one(Path(args.input_file), Path(args.output_file))
+        processor = SimpleBlenderProcessor()
 
-    # If folder pair provided, iterate non-recursively over *.glb
-    if has_folder_pair:
-        input_folder = Path(args.input_folder)
-        output_folder = Path(args.output_folder)
-        if not input_folder.is_dir():
-            logger.error("--input-folder is not a directory: %s", input_folder.as_posix())
-        else:
-            for p in sorted(input_folder.iterdir()):
-                if p.is_file() and p.suffix.lower() == ".glb":
-                    out_p = output_folder / p.name
-                    process_one(p, out_p)
+        def process_one(in_path: Path, out_path: Path):
+            try:
+                logger.info("Processing %s -> %s", in_path.as_posix(), out_path.as_posix())
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                processor.clear_scene()
+                processor.import_glb(in_path)
+                processor.apply_decimation(in_path.stem)
+                processor.export_glb(out_path)
+                logger.info("Output to: %s", out_path.as_posix())
+            except Exception as e:
+                logger.exception("Failed processing %s: %s", in_path.as_posix(), e)
+                raise
+
+        # If file pair provided, process it once
+        if has_file_pair:
+            process_one(Path(args.input_file), Path(args.output_file))
+
+        # If folder pair provided, iterate non-recursively over *.glb
+        if has_folder_pair:
+            input_folder = Path(args.input_folder)
+            output_folder = Path(args.output_folder)
+            if not input_folder.is_dir():
+                logger.error("--input-folder is not a directory: %s", input_folder.as_posix())
+            else:
+                for p in sorted(input_folder.iterdir()):
+                    if p.is_file() and p.suffix.lower() == ".glb":
+                        out_p = output_folder / p.name
+                        process_one(p, out_p)
+        return 0
+    except Exception as e:
+        # NOTE: Raising an exception within a Blender script does NOT make Blender return an error code!
+        # When an exception is raised, we MUST explicitly exit with sys.exit(...) with a non-zero exit code, to bubble up the error to the parent process.
+        # logger.exception(...) automatically includes writing the stacktrace of the current exception (must call within the `except` block), because it defaults exc_info=True.
+        logger.exception("An error occurred during Blender Python mesh decimation.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

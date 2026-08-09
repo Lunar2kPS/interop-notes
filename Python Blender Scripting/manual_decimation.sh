@@ -22,8 +22,11 @@ if [ -z "$inputFolder" ] || [ -z "$outputFolder" ]; then
     exit 1
 fi
 
-thisScriptFolder="$(dirname ${BASH_SOURCE[0]})"
-for filePath in "$inputFolder/"*; do
+thisScriptFolder="$(dirname "${BASH_SOURCE[0]}")"
+for filePath in "$inputFolder/"*.glb; do
+    if [ ! -f "$filePath" ]; then
+        continue
+    fi
     fileName="$(basename "$filePath")"
     fileNameWithoutExtension="${fileName%%.*}" # NOTE: Bash parameter expansion, of the form ${variable<operator>pattern}, and %% Removes the longest pattern from the end of the string, .* picks up a period and everything after it.
     outFilePath="$outputFolder/$fileName"

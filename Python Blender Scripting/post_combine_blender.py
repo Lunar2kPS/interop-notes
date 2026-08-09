@@ -1,6 +1,5 @@
 import argparse
 import logging
-import math
 import sys
 
 from pathlib import Path
@@ -51,7 +50,7 @@ class SimpleBlenderProcessor:
             export_draco_generic_quantization=12
         )
 
-    def join_all(self, mesh_name: str):
+    def join_all(self, mesh_name: str) -> bool:
         self.logger.info("Preparing to join all meshes...")
 
         # Ensure Object mode for object-level ops
@@ -98,8 +97,8 @@ class SimpleBlenderProcessor:
             bpy.ops.object.delete()
 
         if not mesh_objects:
-            self.logger.warning("No non-empty mesh objects found in scene after cleanup.")
-            return {}
+            self.logger.warning(f"No non-empty mesh objects found in scene after cleanup for mesh: {mesh_name}.")
+            return False
 
         # 4) Join remaining meshes
         bpy.ops.object.select_all(action="DESELECT")
@@ -117,6 +116,7 @@ class SimpleBlenderProcessor:
         if joined_obj.data is not None:
             joined_obj.data.name = mesh_name
         self.logger.info(f"Joined mesh name: {joined_obj.name}")
+        return True
 
 
 def parse_script_args(argv: list[str]) -> list[str]:
@@ -131,45 +131,52 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    parser = argparse.ArgumentParser(description="(Helper Program) Blender Post-Decimation Combine Worker")
-    parser.add_argument("--input-folder",
-                        help="Optional: process all .glb files in this folder (non-recursive).")
-    parser.add_argument("--output-file",
-                        help="Where to write the output .glb file to. This will overwrite if the file already exists.")
-    args = parser.parse_args(parse_script_args(sys.argv))
-
     logger = logging.getLogger(__name__)
-    logger.info("Starting (Helper Program) Blender Post-Decimation Combine Helper Program.")
+    try:
+        logger.info("Starting (Helper Program) Blender Post-Decimation Combine Helper Program.")
+        parser = argparse.ArgumentParser(description="(Helper Program) Blender Post-Decimation Combine Worker")
+        parser.add_argument("--input-folder",
+                            help="Optional: process all .glb files in this folder (non-recursive).")
+        parser.add_argument("--output-file",
+                            help="Where to write the output .glb file to. This will overwrite if the file already exists.")
+        args = parser.parse_args(parse_script_args(sys.argv))
 
-    has_input_and_output = bool(args.input_folder and args.output_file)
-    if not has_input_and_output:
-        parser.error("Provide both --input-folder and --output-file.")
-        return 1
-    input_folder = Path(args.input_folder)
-    if not input_folder.is_dir():
-        logger.error("--input-folder is not a directory: %s", input_folder.as_posix())
-        return 1
 
-    processor = SimpleBlenderProcessor()
+        has_input_and_output = bool(args.input_folder and args.output_file)
+        if not has_input_and_output:
+            parser.error("Provide both --input-folder and --output-file.")
+            sys.exit(1)
+        input_folder = Path(args.input_folder)
+        if not input_folder.is_dir():
+            logger.error("--input-folder is not a directory: %s", input_folder.as_posix())
+            sys.exit(1)
 
-    def process_one(input_folder: Path, out_path: Path):
-        try:
-            logger.info("Processing %s -> %s", input_folder.as_posix(), out_path.as_posix())
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            processor.clear_scene()
+        processor = SimpleBlenderProcessor()
 
-            for p in sorted(input_folder.iterdir()):
-                if p.is_file() and p.suffix.lower() == ".glb":
-                    processor.import_glb(p)
-            processor.join_all(out_path.stem)
-            processor.export_glb(out_path)
-            logger.info("Output to: %s", out_path.as_posix())
-        except Exception as e:
-            logger.exception("Failed processing %s: %s", input_folder.as_posix(), e)
-            raise
+        def process_one(input_folder: Path, out_path: Path):
+            try:
+                logger.info("Processing %s -> %s", input_folder.as_posix(), out_path.as_posix())
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                processor.clear_scene()
 
-    process_one(input_folder, Path(args.output_file))
-    return 0
+                for p in sorted(input_folder.iterdir()):
+                    if p.is_file() and p.suffix.lower() == ".glb":
+                        processor.import_glb(p)
+                if processor.join_all(out_path.stem):
+                    processor.export_glb(out_path)
+                    logger.info("Output to: %s", out_path.as_posix())
+                else:
+                    logger.error("Unable to join meshes and export (did you input a file that has only empty objects?).")
+                    sys.exit(1)
+            except Exception as e:
+                logger.exception("Failed processing %s: %s", input_folder.as_posix(), e)
+                raise
+
+        process_one(input_folder, Path(args.output_file))
+        return 0
+    except Exception as e:
+        logger.exception("An error occurred during the Blender Python post-decimation combine step.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
