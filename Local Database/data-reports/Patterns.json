@@ -1,0 +1,14 @@
+{
+    "valueBs": {
+        "min": 0,
+        "max": 9999
+    },
+    "knownValueCs": [
+        "Example",
+        "Values"
+    ],
+    "valueDPatterns": [
+        "Example[a-zA-Z0-9]*([a-zA-Z0-9]+)",
+        "Another Example.*"
+    ]
+}

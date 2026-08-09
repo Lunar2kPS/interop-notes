@@ -1,0 +1,17 @@
+services:
+  database:
+    container_name: s3-analysis-database
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: localdev
+    ports:
+      - "5432:5432"
+    volumes:
+      # - postgres-data:/var/lib/postgresql/data # Pre-v18
+      - postgres-data:/var/lib/postgresql/18/docker # NOTE: This is using our defined named volume (postgres-data) from the bottom of this file.
+      - ./init:/docker-entrypoint-initdb.d:ro # NOTE: This is a bind mount.
+volumes:
+  postgres-data: # NOTE: This defines a named volume that Docker/Podman will manage for us without us having to specify where it lives.
