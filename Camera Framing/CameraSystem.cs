@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering.Universal;
 
 #if UNITY_EDITOR
     using UnityEditor;
@@ -22,7 +25,7 @@ namespace Carlos {
 
         //NOTE: For now as-written, only local-space, OR world-space rotation is supported, not both simultaneously.
         [Serializable]
-        private struct CameraAngleData {
+        private struct CameraAngleData : ISerializationCallbackReceiver {
             public string name;
             public CameraAngleType type;
             public float distanceMultiplier;
@@ -32,11 +35,32 @@ namespace Carlos {
             public Vector3[] quadrantViewRotations;
 
             public bool HasWorldRotationOffset => interiorWorldRotationOffset.sqrMagnitude >= 0.0001f;
+
+            public void OnBeforeSerialize() { }
+            public void OnAfterDeserialize() {
+                if (type == CameraAngleType.ExteriorQuadrant) {
+                    if (quadrantViewRotations == null)
+                        quadrantViewRotations = new Vector3[4];
+                    else if (quadrantViewRotations.Length != 4) {
+                        Array.Resize(ref quadrantViewRotations, 4);
+                    }
+                }
+            }
+        }
+
+        [Serializable]
+        private struct OrthogonalCameraAngleData {
+            public string name;
+            public float distanceMultiplier;
         }
 
         [SerializeField] private Vector3 normalizedAABBCenter = new(0.5f, 0.75f, 0.5f);
         [SerializeField] private CameraAngleData[] angles = { };
-        [SerializeField] private Vector3 vehicleForward = new(1, 0, 0);
+        [SerializeField] private OrthogonalCameraAngleData orthogonalAngle = new() {
+            name = "0",
+            distanceMultiplier = 1
+        };
+        [SerializeField] private Vector3 objectForward = new(1, 0, 0);
 
         [SerializeField] private Camera cameraPrefab;
         [SerializeField] private bool recenterX = true;
@@ -59,6 +83,8 @@ namespace Carlos {
         private Bounds lastLocalBounds;
 
         private Camera renderCamera;
+
+        public Vector3 ObjectForward => objectForward;
         public Camera RenderCamera {
             get {
                 if (renderCamera == null)
@@ -96,7 +122,6 @@ namespace Carlos {
             int width = 1920;
             int height = 1080;
             RenderTexture rt = new(width, height, 24, RenderTextureFormat.ARGB32);
-            // Ensure camera clears to a visible background so transparent shell blends correctly
             camera.targetTexture = rt;
             camera.Render(); // First render: flush any deferred material/GPU updates
 
@@ -117,6 +142,7 @@ namespace Carlos {
                 bytes = tex.EncodeToJPG(quality);
                 RenderTexture.active = null;
                 camera.targetTexture = null;
+                rt.Release();
                 Object.DestroyImmediate(rt);
                 Object.DestroyImmediate(tex);
 
@@ -134,6 +160,90 @@ namespace Carlos {
 #endif
         }
 
+        public Task<byte[]> RenderToPNG(Camera camera, bool maskMode) {
+            int width = 1920;
+            int height = 1080;
+
+            CameraClearFlags prevFlags = camera.clearFlags;
+            Color prevColor = camera.backgroundColor;
+            bool prevMSAA = camera.allowMSAA;
+            bool prevHDR = camera.allowHDR;
+            AntialiasingMode? prevAA = null;
+            bool? prevPP = null;
+            if (camera.TryGetComponent(out UniversalAdditionalCameraData uacd)) {
+                prevAA = uacd.antialiasing;
+                prevPP = uacd.renderPostProcessing;
+            }
+
+            if (maskMode)
+                SetCameraForMasking(camera);
+
+            //NOTE: This code is written for..
+            //  - ProjectSettings.colorSpace = ColorSpace.Linear
+            //  - Use sRGB textures and uniform color, so they all are already sRGB for .png file writing (no conversion needed)
+            RenderTexture rt = new(width, height, 24, GraphicsFormat.R8G8B8A8_SRGB);
+            camera.targetTexture = rt;
+            camera.Render(); // First render: flush any deferred material/GPU updates
+
+            TaskCompletionSource<byte[]> tcs = new();
+            byte[] bytes = null;
+#if UNITY_EDITOR
+            if (!Application.isPlaying) {
+                EditorApplication.QueuePlayerLoopUpdate();
+                EditorApplication.Step();
+            }
+            EditorApplication.delayCall += () => {
+#endif
+                camera.Render(); // Second render: capture
+                RenderTexture.active = rt;
+
+                Texture2D tex = new(width, height, GraphicsFormat.R8G8B8A8_SRGB, 0, TextureCreationFlags.None);
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                tex.Apply();
+                bytes = tex.EncodeToPNG();
+                RenderTexture.active = null;
+                camera.targetTexture = null;
+
+                rt.Release();
+                Object.DestroyImmediate(rt);
+                Object.DestroyImmediate(tex);
+
+                if (maskMode) {
+                    camera.clearFlags = prevFlags;
+                    camera.backgroundColor = prevColor;
+                    camera.allowMSAA = prevMSAA;
+                    camera.allowHDR = prevHDR;
+                    if (prevAA != null)
+                        uacd.antialiasing = prevAA.Value;
+                    if (prevPP != null)
+                        uacd.renderPostProcessing = prevPP.Value;
+                }
+
+#if UNITY_EDITOR
+                try {
+                    tcs.TrySetResult(bytes);
+                } catch (Exception e) {
+                    tcs.TrySetException(e);
+                    throw;
+                }
+            };
+            return tcs.Task;
+#else
+            return Task.FromResult(bytes);
+#endif
+        }
+
+        private void SetCameraForMasking(Camera camera) {
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = Color.black;
+            camera.allowMSAA = false;
+            camera.allowHDR = false;
+            if (camera.TryGetComponent(out UniversalAdditionalCameraData uacd)) {
+                uacd.antialiasing = AntialiasingMode.None;
+                uacd.renderPostProcessing = false;
+            }
+        }
+
         private Vector3 GetCenter(Bounds bounds, Vector3 normalizedCenter) {
             Vector3 min = bounds.min;
             Vector3 max = bounds.max;
@@ -148,10 +258,68 @@ namespace Carlos {
             GizmosUtility.DrawCubeTransformed(gizmoCorners);
         }
 
-        public async IAsyncEnumerable<CameraAngle> PrepareCameraAngles(Camera camera, ModelLoadResult focusPart, ModelLoadResult vehicleShell) {
+        //NOTE: -x, +x, -y, +y, -z, +z, directions going from the center of the center of the focus/primary model, outward.
+        private static readonly Vector3[] OrthogonalOutwardDirections = {
+            new Vector3(-1,  0,  0),
+            new Vector3( 1,  0,  0),
+            new Vector3( 0, -1,  0),
+            new Vector3( 0,  1,  0),
+            new Vector3( 0,  0, -1),
+            new Vector3( 0,  0,  1)
+        };
+        private static readonly Vector3[] OrthogonalInwardUpDirections = {
+            new Vector3( 0,  1,  0),
+            new Vector3( 0,  1,  0),
+            new Vector3( 0,  0, -1),
+            new Vector3( 0,  0,  1),
+            new Vector3( 0,  1,  0),
+            new Vector3( 0,  1,  0)
+        };
+
+        public async Task<CameraAngle> PrepareOrthogonalCameraAngle(Camera camera, ModelLoadResult primary, IEnumerable<ModelLoadResult> secondaryParts) {
+            await Task.WhenAll(
+                Enumerable.Concat(
+                    Enumerable.Repeat(primary, 1),
+                    secondaryParts
+                ).Select(m => m.GetBoundsAsync())
+            );
+
+            int[] occurences = new int[OrthogonalOutwardDirections.Length];
+            Bounds primaryBounds = primary.boundsTask.Result;
+            foreach (ModelLoadResult secondary in secondaryParts) {
+                Vector3 delta = secondary.boundsTask.Result.center - primaryBounds.center;
+                int largestAbsDimension = 0;
+                for (int i = 1; i < 3; i++) {
+                    if (Mathf.Abs(delta[i]) > Mathf.Abs(delta[largestAbsDimension]))
+                        largestAbsDimension = i;
+                }
+                int index = largestAbsDimension; //0, 1, 2
+                index *= 2; //0, 2, 4 (negative direction indices)
+                if (delta[largestAbsDimension] > 0)
+                    index++; //1, 3, 5 (positive direction indices)
+                occurences[index]++;
+            }
+            int indexOfMax = 0;
+            for (int i = 1; i < occurences.Length; i++)
+                if (occurences[i] > occurences[indexOfMax])
+                    indexOfMax = i;
+
+            Vector3 outwardDirection = OrthogonalOutwardDirections[indexOfMax];
+            Vector3 inwardForward = -outwardDirection;
+            Vector3 inwardUp = OrthogonalInwardUpDirections[indexOfMax];
+            Quaternion worldRot = Quaternion.LookRotation(inwardForward, inwardUp);
+            Vector3 worldPos = await CalculateFramingParams(camera, primaryBounds.center, worldRot, primary);
+            return new CameraAngle() {
+                name = orthogonalAngle.name,
+                position = primaryBounds.center + orthogonalAngle.distanceMultiplier * (worldPos - primaryBounds.center),
+                rotation = worldRot
+            };
+        }
+
+        public async IAsyncEnumerable<CameraAngle> PrepareCameraAngles(Camera camera, ModelLoadResult focusPart, ModelLoadResult mainObject) {
             Bounds worldFocusPartBounds = await focusPart.GetBoundsAsync();
-            Bounds worldShellBounds = (vehicleShell.IsValid && vehicleShell.HasGameObject) ? await vehicleShell.GetBoundsAsync() : worldFocusPartBounds;
-            Vector3 weightedVehicleCenter = GetCenter(worldShellBounds, normalizedAABBCenter);
+            Bounds worldShellBounds = (mainObject.IsValid && mainObject.HasGameObject) ? await mainObject.GetBoundsAsync() : worldFocusPartBounds;
+            Vector3 weightedObjectCenter = GetCenter(worldShellBounds, normalizedAABBCenter);
             Vector3? orbitalOffset = null;
 
             CameraAngleData[] angles;
@@ -171,10 +339,10 @@ namespace Carlos {
                 CameraAngleData angle = angles[index];
                 switch (angle.type) {
                     case CameraAngleType.Interior: {
-                            camera.transform.position = weightedVehicleCenter;
-                            Vector3 lookDirection = worldFocusPartBounds.center - weightedVehicleCenter;
+                            camera.transform.position = weightedObjectCenter;
+                            Vector3 lookDirection = worldFocusPartBounds.center - weightedObjectCenter;
                             if (lookDirection.sqrMagnitude <= 0.0001f) {
-                                Debug.LogWarning("Defaulting look direction!" + (vehicleShell.IsValid && vehicleShell.HasGameObject ? " Maybe there was no primary focus part?" : "Maybe it's because of the lack of vehicle shell?"));
+                                Debug.LogWarning("Defaulting look direction!" + (mainObject.IsValid && mainObject.HasGameObject ? " Maybe there was no primary focus part?" : "Maybe it's because of the lack of object shell?"));
                                 lookDirection.Set(-0.707107f, 0, -0.707107f);
                             }
                             Quaternion rotation = Quaternion.LookRotation(lookDirection, new Vector3(0, 1, 0));
@@ -196,8 +364,8 @@ namespace Carlos {
                             //Quaternion adjustedRotation = rotation * localRot; //NOTE: Here, we RIGHT-multiply rotation because this is in the local-space of rotation, for example, to make the camera look down from where it already is looking.
                         }
                     case CameraAngleType.Exterior: {
-                            Quaternion worldRot = Quaternion.LookRotation(Quaternion.Euler(angle.exteriorViewRotation) * -vehicleForward, Vector3.up);
-                            Vector3 worldPos = await CalculateFramingParams(camera, worldShellBounds.center, worldRot, vehicleShell);
+                            Quaternion worldRot = Quaternion.LookRotation(Quaternion.Euler(angle.exteriorViewRotation) * -objectForward, Vector3.up);
+                            Vector3 worldPos = await CalculateFramingParams(camera, worldShellBounds.center, worldRot, mainObject);
                             return new CameraAngle() {
                                 name = angle.name,
                                 position = worldShellBounds.center + angle.distanceMultiplier * (worldPos - worldShellBounds.center),
@@ -205,25 +373,25 @@ namespace Carlos {
                             };
                         }
                     case CameraAngleType.ExteriorQuadrant: {
-                            //NOTE: We would use sign.xz, but because vehicle forwards are +x in world-space (1, 0, 0), that means our right axis is -z, and forward is +x, so -ZX.
+                            //NOTE: We would use sign.xz, but because object forwards are +x in world-space (1, 0, 0), that means our right axis is -z, and forward is +x, so -ZX.
                             //  (-1, -1)    B5
                             //  ( 1, -1)    B6
                             //  (-1,  1)    B1
                             //  ( 1,  1)    B2
-                            Vector3 sign = worldFocusPartBounds.center - weightedVehicleCenter;
+                            Vector3 sign = worldFocusPartBounds.center - weightedObjectCenter;
                             for (int i = 0; i < 3; i++)
                                 sign[i] = Mathf.Sign(sign[i]);
                             int quadrantIndex = 0;
 
-                            //Vehicle right axis: -z
+                            //Object right axis: -z
                             if (sign.z < 0)
                                 quadrantIndex++;
-                            //Vehicle forward axis: +x
+                            //Object forward axis: +x
                             if (sign.x > 0)
                                 quadrantIndex += 2;
 
-                            Quaternion worldRot = Quaternion.LookRotation(Quaternion.Euler(angle.quadrantViewRotations[quadrantIndex]) * -vehicleForward, Vector3.up);
-                            Vector3 worldPos = await CalculateFramingParams(camera, worldShellBounds.center, worldRot, vehicleShell);
+                            Quaternion worldRot = Quaternion.LookRotation(Quaternion.Euler(angle.quadrantViewRotations[quadrantIndex]) * -objectForward, Vector3.up);
+                            Vector3 worldPos = await CalculateFramingParams(camera, worldShellBounds.center, worldRot, mainObject);
                             return new CameraAngle() {
                                 name = angle.name,
                                 position = worldShellBounds.center + angle.distanceMultiplier * (worldPos - worldShellBounds.center),
@@ -266,6 +434,8 @@ namespace Carlos {
                 throw new NotSupportedException("This function currently only supports perspective cameras.");
 
             Vector3 worldPos = new();
+            if (!model.IsValid || !model.HasGameObject)
+                return worldPos;
 
             //ITERATION 1: Approximate framing based on world-space AABB.
             //  Camera transform starts off being centered at the world-space AABB center (centerPos).
