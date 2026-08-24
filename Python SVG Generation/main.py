@@ -44,11 +44,16 @@ async def grace_timer(python_done_event: asyncio.Event, grace_period: int = GRAC
     logger.info(f"No new requests received after {grace_period}sec of receiving \"exit\" from C#. Completing...")
     python_done_event.set()
 
-def restart_timer(python_done_event: asyncio.Event, timer_state: dict):
+def cancel_timer(timer_state: dict) -> bool:
     previous_timer = timer_state["task"]
     if previous_timer is not None:
         logger.info("TIMER CANCEL.")
         previous_timer.cancel()
+        return True
+    return False
+
+def restart_timer(python_done_event: asyncio.Event, timer_state: dict):
+    cancel_timer(timer_state)
 
     logger.info("TIMER CREATE.")
     timer_state["task"] = asyncio.create_task(grace_timer(python_done_event))
@@ -207,7 +212,10 @@ async def main() -> int:
                     try:
                         message = timer_message_queue.get_nowait()
                         if cs_done_event.is_set():
-                            restart_timer(python_done_event, timer_state)
+                            if message == 1:
+                                cancel_timer(timer_state)
+                            elif message == 2:
+                                restart_timer(python_done_event, timer_state)
                         timer_message_queue.task_done()
                     except Empty:
                         pass
