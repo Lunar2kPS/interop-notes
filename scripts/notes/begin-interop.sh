@@ -30,6 +30,7 @@ if [ $exitCode -eq 0 ]; then
     folderName="$(basename $url)"
     folderName="${folderName%.*}"
     cd "$folderName" &>/dev/null
+    source "./scripts/initialize.sh"
     unset url
     unset folderName
 fi
