@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+import gc
 
 from pathlib import Path
 
@@ -53,15 +54,20 @@ class SimpleBlenderProcessor:
     def join_all(self, mesh_name: str) -> bool:
         self.logger.info("Preparing to join all meshes...")
 
-        # Ensure Object mode for object-level ops
+        # Ensure Object mode for object-level operations.
         if bpy.context.object and bpy.context.object.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
         scene_objects = list(bpy.context.scene.objects)
         self.logger.info(f"Found {len(scene_objects)} scene objects.")
 
-        # 1) Delete empty transform objects
-        empty_objects = [obj for obj in scene_objects if obj.type == "EMPTY"]
+        # 1. Delete all empty and 0-vertex objects.
+        empty_objects = [
+            obj
+            for obj in scene_objects
+            if obj.type == "EMPTY"
+            or (obj.type == "MESH" and len(obj.data.vertices) == 0)
+        ]
         if empty_objects:
             self.logger.info(f"Deleting {len(empty_objects)} empty transform object(s)...")
             bpy.ops.object.select_all(action="DESELECT")
@@ -72,43 +78,22 @@ class SimpleBlenderProcessor:
 
         self.logger.info(f"We found {len(empty_objects)} empty objects.")
 
-        # Refresh after deletion
-        scene_objects = list(bpy.context.scene.objects)
-
-        # 2) Delete empty meshes, keep only non-empty meshes
-        empty_meshes = []
-        mesh_objects = []
-        for obj in scene_objects:
-            if obj.type != "MESH":
-                continue
-
-            if obj.data is None or len(obj.data.vertices) == 0:
-                empty_meshes.append(obj)
-            else:
-                mesh_objects.append(obj)
-        self.logger.info(f"We found {len(empty_meshes)} empty meshes.")
-
-        if empty_meshes:
-            self.logger.info(f"Deleting {len(empty_meshes)} empty mesh object(s)...")
-            bpy.ops.object.select_all(action="DESELECT")
-            for obj in empty_meshes:
-                obj.select_set(True)
-            bpy.context.view_layer.objects.active = empty_meshes[0]
-            bpy.ops.object.delete()
-
-        if not mesh_objects:
-            self.logger.warning(f"No non-empty mesh objects found in scene after cleanup for mesh: {mesh_name}.")
-            return False
-
-        # 4) Join remaining meshes
+        # 2. Join meshes.
+        mesh_objects = [
+            obj for obj in bpy.context.scene.objects
+            if obj.type == "MESH"
+        ]
+        self.logger.info("Applying transformations and setting to world-origin pivots on all mesh objects before joining...")
         bpy.ops.object.select_all(action="DESELECT")
         for obj in mesh_objects:
             obj.select_set(True)
-
         bpy.context.view_layer.objects.active = mesh_objects[0]
 
-        # TODO: We must figure out what pivot point we want to use for the combined mesh...
-        self.logger.info(f"Joining {len(mesh_objects)} non-empty mesh object(s)...")
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bpy.context.scene.cursor.location = (0, 0, 0)
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+
+        self.logger.info(f"Joining {len(bpy.context.selected_objects)} non-empty mesh object(s)...")
         bpy.ops.object.join()
 
         joined_obj = bpy.context.view_layer.objects.active
@@ -116,6 +101,12 @@ class SimpleBlenderProcessor:
         if joined_obj.data is not None:
             joined_obj.data.name = mesh_name
         self.logger.info(f"Joined mesh name: {joined_obj.name}")
+
+        # NOTE: This is at a point where memory usually spikes.
+        self.logger.info("Reducing memory usage...")
+        bpy.data.orphans_purge()
+        gc.collect()
+
         return True
 
 
@@ -151,6 +142,8 @@ def main():
             logger.error("--input-folder is not a directory: %s", input_folder.as_posix())
             sys.exit(1)
 
+        logger.info("Turning off Blender's global undo to save on memory...")
+        bpy.context.preferences.edit.use_global_undo = False
         processor = SimpleBlenderProcessor()
 
         def process_one(input_folder: Path, out_path: Path):

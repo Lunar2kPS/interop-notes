@@ -17,6 +17,7 @@ import argparse
 import logging
 import math
 import sys
+import gc
 
 from pathlib import Path
 
@@ -25,7 +26,6 @@ import bpy
 class SimpleBlenderProcessor:
     def __init__(self):
         self.logger = logging.getLogger(f"{self.__class__.__name__}")
-        self.logger.info("NAME = " + self.__class__.__name__)
 
     def clear_scene(self):
         self.logger.info("Clearing scene...")
@@ -88,83 +88,62 @@ class SimpleBlenderProcessor:
     # --- --- ---
 
     def apply_decimation(self, mesh_name: str):
-        self.logger.info("Applying decimation... (apply_decimation)")
+        self.logger.info("Beginning mesh processing... (apply_decimation)")
 
-        # Ensure Object mode for object-level ops
+        # Ensure Object mode for object-level operations.
         if bpy.context.object and bpy.context.object.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
-        scene_objects = list(bpy.context.scene.objects)
-        self.logger.info(f"Found {len(scene_objects)} scene objects.")
+        self.logger.info(f"Found {len(bpy.context.scene.objects)} scene objects.")
 
-        # 1) Delete empty transform objects
-        empty_objects = [obj for obj in scene_objects if obj.type == "EMPTY"]
+        # 1. Record all mesh transform matrices first,
+        #   because deleting parents keeps children (unlike in Unity),
+        #   but disturbs their transforms (also unlike in Unity).
+        self.logger.info("Saving a snapshot of all non-empty meshes' transform matrices...")
+        mesh_world_matrices = [
+            (obj, obj.matrix_world.copy())
+            for obj in bpy.context.scene.objects
+            if obj.type == "MESH" and len(obj.data.vertices) > 0
+        ]
+
+        # 2. Delete all empty and 0-vertex objects.
+        empty_objects = [
+            obj for obj in bpy.context.scene.objects
+            if obj.type == "EMPTY"
+            or (obj.type == "MESH" and len(obj.data.vertices) == 0)
+        ]
         if empty_objects:
-            self.logger.info(f"Deleting {len(empty_objects)} empty transform object(s)...")
+            self.logger.info(f"Deleting {len(empty_objects)} empty transform and 0-vertex mesh object(s)...")
             bpy.ops.object.select_all(action="DESELECT")
             for obj in empty_objects:
                 obj.select_set(True)
             bpy.context.view_layer.objects.active = empty_objects[0]
             bpy.ops.object.delete()
 
-        self.logger.info(f"We found {len(empty_objects)} empty objects.")
+        # 3. Restore all transforms back to what they were before unparenting/parent deletion.
+        for obj, matrix in mesh_world_matrices:
+            obj.matrix_world = matrix
 
-        # Refresh after deletion
-        scene_objects = list(bpy.context.scene.objects)
-
-        # 2) Delete empty meshes, keep only non-empty meshes
-        empty_meshes = []
-        mesh_objects = []
-        for obj in scene_objects:
-            if obj.type != "MESH":
-                continue
-
-            if obj.data is None or len(obj.data.vertices) == 0:
-                empty_meshes.append(obj)
-            else:
-                mesh_objects.append(obj)
-        self.logger.info(f"We found {len(empty_meshes)} empty meshes.")
-
-        if empty_meshes:
-            self.logger.info(f"Deleting {len(empty_meshes)} empty mesh object(s)...")
-            bpy.ops.object.select_all(action="DESELECT")
-            for obj in empty_meshes:
-                obj.select_set(True)
-            bpy.context.view_layer.objects.active = empty_meshes[0]
-            bpy.ops.object.delete()
-
-        if not mesh_objects:
-            self.logger.warning("No non-empty mesh objects found in scene after cleanup.")
-            return {}
-
-        # 3) Add per-mesh vertex groups and build mapping
-        object_to_group_id = {}
-
-        bpy.ops.object.select_all(action="DESELECT")
-
-        for i, obj in enumerate(mesh_objects):
-            bpy.context.view_layer.objects.active = obj
-            obj.select_set(True)
-
-            vg = obj.vertex_groups.new(name=f"Group {i}")
-            all_vertex_indices = [v.index for v in obj.data.vertices]
-            if all_vertex_indices:
-                vg.add(all_vertex_indices, 1.0, "REPLACE")
-
-            object_to_group_id[obj.name] = i
-            self.logger.info(f"Vertex group mapping: {obj.name} -> Group {i}")
-
-            obj.select_set(False)
-
-        # 4) Join remaining meshes
+        # 4) Join remaining meshes:
+        #   4.1. Unparent while preserving their matrix_world values.
+        #   4.2. Apply transformations.
+        #   4.3. Set each of their pivots to the world origin (0, 0, 0).
+        self.logger.info("Restoring mesh transforms from before deletion of parents...")
+        mesh_objects = [
+            obj for obj in bpy.context.scene.objects
+            if obj.type == "MESH"
+        ]
+        self.logger.info("Applying transformations and setting to world-origin pivots on all mesh objects before joining...")
         bpy.ops.object.select_all(action="DESELECT")
         for obj in mesh_objects:
             obj.select_set(True)
-
         bpy.context.view_layer.objects.active = mesh_objects[0]
 
-        # TODO: We must figure out what pivot point we want to use for the combined mesh...
-        self.logger.info(f"Joining {len(mesh_objects)} non-empty mesh object(s)...")
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bpy.context.scene.cursor.location = (0, 0, 0)
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+
+        self.logger.info(f"Joining {len(bpy.context.selected_objects)} non-empty mesh object(s)...")
         bpy.ops.object.join()
 
         joined_obj = bpy.context.view_layer.objects.active
@@ -173,8 +152,14 @@ class SimpleBlenderProcessor:
             joined_obj.data.name = mesh_name
         self.logger.info(f"Joined mesh name: {joined_obj.name}")
 
-        # 5) Run cleanup/decimation once on final mesh
+        # NOTE: This is at a point where memory usually spikes.
+        self.logger.info("Reducing memory usage...")
+        bpy.data.orphans_purge()
+        gc.collect()
+
+        # 5) Run cleanup/decimation on final mesh
         try:
+            self.logger.info("Applying decimation...")
             self.logger.info(f"Selected all {len(joined_obj.data.vertices)} vertices (total {len(bpy.context.scene.objects)} objects in scene).")
             bpy.ops.object.mode_set(mode="EDIT")
             bpy.ops.mesh.select_all(action="SELECT")
@@ -229,8 +214,9 @@ class SimpleBlenderProcessor:
             self.logger.exception("Failed to clean up normals on %s.", joined_obj.name)
             raise
 
-        self.logger.info(f"Final object/group mapping: {object_to_group_id}")
-        return object_to_group_id
+        # self.logger.info(f"Final object/group mapping: {object_to_group_id}")
+        # return object_to_group_id
+        return { }
 
 def parse_script_args(argv: list[str]) -> list[str]:
     if "--" in argv:
@@ -251,20 +237,16 @@ def main():
                             help="The input .glb file to process.")
         parser.add_argument("--output-file",
                             help="Where to write the output .glb file to. This will overwrite if the file already exists.")
-        parser.add_argument("--input-folder",
-                            help="Optional: process all .glb files in this folder (non-recursive).")
-        parser.add_argument("--output-folder",
-                            help="Optional: output folder for files when using --input-folder.")
         args = parser.parse_args(parse_script_args(sys.argv))
 
         logger.info("Starting (Helper Program) Blender Python Mesh Decimation.")
 
-        # Validate inputs: require either a file pair or a folder pair (or both)
         has_file_pair = bool(args.input_file and args.output_file)
-        has_folder_pair = bool(args.input_folder and args.output_folder)
-        if not has_file_pair and not has_folder_pair:
-            parser.error("Provide either --input-file and --output-file, or --input-folder and --output-folder.")
+        if not has_file_pair:
+            parser.error("You must provide --input-file and --output-file.")
 
+        logger.info("Turning off Blender's global undo to save on memory...")
+        bpy.context.preferences.edit.use_global_undo = False
         processor = SimpleBlenderProcessor()
 
         def process_one(in_path: Path, out_path: Path):
@@ -283,18 +265,6 @@ def main():
         # If file pair provided, process it once
         if has_file_pair:
             process_one(Path(args.input_file), Path(args.output_file))
-
-        # If folder pair provided, iterate non-recursively over *.glb
-        if has_folder_pair:
-            input_folder = Path(args.input_folder)
-            output_folder = Path(args.output_folder)
-            if not input_folder.is_dir():
-                logger.error("--input-folder is not a directory: %s", input_folder.as_posix())
-            else:
-                for p in sorted(input_folder.iterdir()):
-                    if p.is_file() and p.suffix.lower() == ".glb":
-                        out_p = output_folder / p.name
-                        process_one(p, out_p)
         return 0
     except Exception as e:
         # NOTE: Raising an exception within a Blender script does NOT make Blender return an error code!

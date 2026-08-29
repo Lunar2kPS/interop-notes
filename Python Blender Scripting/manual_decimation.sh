@@ -5,7 +5,7 @@
 argCount=$#
 args=("$@")
 
-maxConcurrent=3
+maxConcurrent=2
 running=0
 
 for ((i = 0; i < argCount; i = i + 2)); do
@@ -14,6 +14,7 @@ for ((i = 0; i < argCount; i = i + 2)); do
     case "$currentArg" in
         "--input-folder") inputFolder="$nextArg" ;;
         "--output-folder") outputFolder="$nextArg" ;;
+        "--blender-log-file") blenderLogFile="$nextArg" ;;
     esac
 done
 
@@ -29,9 +30,11 @@ for filePath in "$inputFolder/"*.glb; do
     fi
     fileName="$(basename "$filePath")"
     fileNameWithoutExtension="${fileName%%.*}" # NOTE: Bash parameter expansion, of the form ${variable<operator>pattern}, and %% Removes the longest pattern from the end of the string, .* picks up a period and everything after it.
+    fileExtension="${fileName##*.}"
     outFilePath="$outputFolder/$fileName"
 
-    python "$thisScriptFolder/manual_decimation_main.py" --input-file "$filePath" --output-file "$outFilePath" --blender-log-file "blender_output_$fileNameWithoutExtension.log" &
+    perLogFile="${blenderLogFile//\$fileName/$fileNameWithoutExtension}"
+    python "$thisScriptFolder/manual_decimation_main.py" --input-file "$filePath" --output-file "$outFilePath" --blender-log-file "$perLogFile" &
     ((running++))
     if ((running >= maxConcurrent)); then
         wait -n # NOTE: This waits for the first of any of the PIDs started by this script/shell to finish.
