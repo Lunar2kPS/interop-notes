@@ -1,0 +1,450 @@
+{
+    "settingsSync.ignoredSettings": [
+        "cmake.cmakePath"
+    ],
+    "scm.showHistoryGraph": false,
+    "code-runner.runInTerminal": false,
+    "cmake.configureOnOpen": false,
+    "cmake.configureOnEdit": false,
+    "C_Cpp.clang_format_fallbackStyle": "Google",
+    "git.enableSmartCommit": true,
+    "files.associations": {
+        "*.meta": "yaml",
+        "*.json": "jsonc"
+    },
+    "files.exclude": {
+        "**/.git": false
+    },
+    "security.workspace.trust.untrustedFiles": "open",
+    "git.autofetch": true,
+    "explorer.confirmDragAndDrop": false,
+    "[html]": {
+        "editor.defaultFormatter": "vscode.html-language-features"
+    },
+    "[json]": {
+        "editor.tabSize": 4,
+        "editor.formatOnSave": false,
+        "editor.defaultFormatter": "vscode.json-language-features",
+        "editor.renderWhitespace": "all",
+        "editor.wordWrap": "on"
+    },
+    "[jsonc]": {
+        "editor.tabSize": 4,
+        "editor.formatOnSave": false,
+        "editor.defaultFormatter": "vscode.json-language-features",
+        "editor.renderWhitespace": "all",
+        "editor.wordWrap": "on"
+    },
+    "diffEditor.ignoreTrimWhitespace": false,
+    "terminal.integrated.tabs.enabled": false,
+    "terminal.integrated.defaultProfile.windows": "Git Bash",
+    "terminal.integrated.profiles.windows": {
+        "C:\\Program Files\\Git\\bin\\bash.exe (migrated)": {
+            "path": "C:\\Program Files\\Git\\bin\\bash.exe",
+            "args": []
+        }
+    },
+    "editor.renderWhitespace": "all",
+    "files.eol": "\n",
+    "git.confirmSync": false,
+    "yaml.schemas": {
+        "kubernetes": [
+            "*.yml",
+            "*.yaml"
+        ]
+    },
+    "yaml.customTags": [
+        "!And",
+        "!And sequence",
+        "!If",
+        "!If sequence",
+        "!Not",
+        "!Not sequence",
+        "!Equals",
+        "!Equals sequence",
+        "!Or",
+        "!Or sequence",
+        "!FindInMap",
+        "!FindInMap sequence",
+        "!Base64",
+        "!Join",
+        "!Join sequence",
+        "!Cidr",
+        "!Ref",
+        "!Sub",
+        "!Sub sequence",
+        "!GetAtt",
+        "!GetAZs",
+        "!ImportValue",
+        "!ImportValue sequence",
+        "!Select",
+        "!Select sequence",
+        "!Split",
+        "!Split sequence"
+    ],
+    "aws.profile": "profile:default",
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "*/Skill*Tomes/*.json"
+            ],
+            "url": "./Assets/Json Schemas/Skill Tome Data.json"
+        }
+    ],
+    "explorer.confirmDelete": false,
+    "emojisense.unicodeCompletionsEnabled": false,
+    "editor.codeLens": false,
+    "editor.suggest.showMethods": true,
+    "editor.suggest.preview": true,
+    "editor.acceptSuggestionOnEnter": "on",
+    "editor.snippetSuggestions": "top",
+    "editor.inlayHints.enabled": "off",
+    "maven.terminal.useJavaHome": true,
+    "task.allowAutomaticTasks": "on",
+    "editor.largeFileOptimizations": false,
+    "security.workspace.trust.enabled": false,
+    "omnisharp.useModernNet": false,
+    "workbench.colorTheme": "Dark+",
+    "editor.suggest.showSnippets": false,
+    "workbench.startupEditor": "none",
+    "editor.semanticHighlighting.enabled": false,
+    "editor.semanticTokenColorCustomizations": {
+        "enabled": true,
+        "rules": {
+            "keyword": "#569CD6",
+            "controlKeyword": "#569CD6",
+            "namespace": "#DCDCDC",
+            "class": "#43FABE",
+            "referenceType": "#43FABE",
+            "type:java": "#43FABE",
+            "record:java": "#43FABE",
+            "annotation:java": "#43FABE",
+            "class:cpp": "#2BB5FF",
+            "type:cpp": "#2BB5FF",
+            "templateType:cpp": "#2BB5FF",
+            "type:lua": "#2BB5FF",
+            "valueType": "#2BB5FF",
+            "struct": "#2BB5FF",
+            "interface": "#F95559",
+            "enum": "#F96B6F",
+            "enumMember": "#E096FC",
+            "field": "#71F8FF",
+            "property:lua": "#71F8FF",
+            "property:cpp": "#71F8FF",
+            "property:csharp": "#7DF161",
+            "property:java": "#71F8FF",
+            "method": "#F79E3E",
+            "annotationMember:java": "#F79E3E",
+            "function": "#F79E3E",
+            "templateFunction": "#F79E3E",
+            "genericType": "#39F92F",
+            "typeParameter": "#39F92F",
+            "parameter": "#BA77F7",
+            "recordComponent:java": "#BA77F7",
+            "local": "#FA7AAA",
+            "variable": "#FA7AAA",
+            "delegate": {
+                "foreground": "#FCBF4E",
+                "fontStyle": "bold"
+            },
+            "event": "#FFEA51",
+            "label": "#FAE183",
+            "string": "#FDE184",
+            "stringLiteral": "#FDE184",
+            "stringVerbatim": "#FDE184",
+            "stringEscapeCharacter": "#FFD68F",
+            "macro": "#A1A0FF",
+            "preprocessorKeyword": "#9B9B9B",
+            "preprocessorText": "#DCDCDC",
+            "comment": "#57A64A"
+        }
+    },
+    "editor.tokenColorCustomizations": {
+        "textMateRules": [
+            { //Keywords, Access Modifiers
+                "scope": [
+                    "keyword",
+                    "keyword.control",
+                    "storage.modifier",
+                    "keyword.other.using.cs",
+                    "keyword.other.using.directive",
+                    "meta.head.extern"
+                ],
+                "settings": {
+                    "foreground": "#569CD6"
+                }
+            },
+            { //Namespaces
+                "scope": [
+                    "entity.name.type.namespace",
+                    "entity.name.type.module.java",
+                    "punctuation.separator"
+                    
+                ],
+                "settings": {
+                    "foreground": "#DCDCDC"
+                }
+            },
+            { //Classes
+                "scope": [
+                    "entity.name.type.class.cs",
+                    "entity.name.type.class.java",
+                    "entity.name.type.record.java",
+                    "storage.type.java",
+                    "storage.type.generic.java",
+                    "storage.type.object.array.java",
+                    "storage.type.annotation.java",
+                    "entity.other.inherited-class.java",
+                    "entity.name.type.class.python",
+                    "meta.function.python"
+                ],
+                "settings": {
+                    "foreground": "#43FABE"
+                }
+            },
+            { //Structs
+                "scope": [
+                    "entity.name.type.struct",
+                    "entity.name.type.class.cpp"
+                ],
+                "settings": {
+                    "foreground": "#2BB5FF"
+                }
+            },
+            { //Interfaces
+                "scope": [
+                    "entity.name.type.interface"
+                ],
+                "settings": {
+                    "foreground": "#F95559"
+                }
+            },
+            { //Enums
+                "scope": [
+                    "entity.name.type.enum"
+                ],
+                "settings": {
+                    "foreground": "#F96B6F"
+                }
+            },
+            { //Enum Members
+                "scope": [
+                    "entity.name.variable.enum-member",
+                    "constant.other.enum.java",
+                    "constant.other.caps"
+                ],
+                "settings": {
+                    "foreground": "#E096FC"
+                }
+            },
+            { //Fields
+                "scope": [
+                    "entity.name.variable.field",
+                    "variable.other.object.property.java",
+                    "meta.attribute.python"
+                ],
+                "settings": {
+                    "foreground": "#71F8FF"
+                }
+            },
+            { //Fields for JSON
+                "scope": [
+                    "support.type.property-name.json"
+                ],
+                "settings": {
+                    "foreground": "#ffaf59"
+                }
+            },
+            { //Properties
+                "scope": [
+                    "variable.other.object.property"
+                ],
+                "settings": {
+                    "foreground": "#7DF161"
+                }
+            },
+            { //Methods, Functions
+                "scope": [
+                    "entity.name.function.cs",
+                    "entity.name.function.java",
+                    "entity.name.function.cpp",
+                    "entity.name.function.python",
+                    "meta.function-call.generic.python"
+                ],
+                "settings": {
+                    "foreground": "#F79E3E"
+                }
+            },
+            { //Type Parameters
+                "scope": [
+                    "entity.name.type.type-parameter"
+                ],
+                "settings": {
+                    "foreground": "#39F92F"
+                }
+            },
+            { //Parameters
+                "scope": [
+                    "entity.name.variable.parameter",
+                    "variable.parameter"
+                ],
+                "settings": {
+                    "foreground": "#BA77F7"
+                }
+            },
+            { //Local Variables
+                "scope": [
+                    "entity.name.variable.local",
+                    "variable.other.definition.java",
+                    "variable.other.object.java"
+                ],
+                "settings": {
+                    "foreground": "#FA7AAA"
+                }
+            },
+            { //Delegates
+                "scope": [
+                    "entity.name.type.delegate"
+                ],
+                "settings": {
+                    "foreground": "#FCBF4E",
+                    "fontStyle": "bold"
+                }
+            },
+            { //Events
+                "scope": [
+                    "entity.name.variable.event"
+                ],
+                "settings": {
+                    "foreground": "#FFEA51"
+                }
+            },
+            { //Labels
+                "scope": [
+                    "entity.name.label"
+                ],
+                "settings": {
+                    "foreground": "#FAE183"
+                }
+            },
+            { //String
+                "scope": [
+                    "string.quoted.double",
+                    "string.quoted.single.java",
+                    "string.quoted.triple.java",
+                    "string.quoted.single.python",
+                    "string.quoted.multi.python"
+                ],
+                "settings": {
+                    "foreground": "#FDE184"
+                }
+            },
+            { //String Escape Character
+                "scope": [
+                    "constant.character.escape"
+                ],
+                "settings": {
+                    "foreground": "#FFD68F"
+                }
+            },
+            { //Preprocessor Keyword
+                "scope": [
+                    "keyword.control.directive.pragma",
+                    "keyword.control.directive.conditional.if",
+                    "keyword.control.directive.elif",
+                    "keyword.control.directive.else",
+                    "keyword.control.directive.endif"
+                ],
+                "settings": {
+                    "foreground": "#9B9B9B"
+                }
+            },
+            { //Preprocessor Text
+                "scope": [
+                    // "entity.name.function.preprocessor", //Don't want to do this, because it grabs WINDOWS and other defines.
+                    "entity.name.variable.preprocessor.symbol",
+                    "entity.other.attribute-name.pragma.preprocessor",
+                    "keyword.control.directive.conditional.defined",
+                    "meta.preprocessor",
+                    "meta.preprocessor.conditional"
+                ],
+                "settings": {
+                    "foreground": "#DCDCDC"
+                }
+            },
+            { //Comment
+                "scope": [
+                    "comment",
+                    "keyword.other.documentation.javadoc.java",
+                    "string.quoted.docstring"
+                ],
+                "settings": {
+                    "foreground": "#57A64A"
+                }
+            }
+        ]
+    },
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "terminal.integrated.defaultProfile.osx": "bash",
+    "terminal.integrated.enableMultiLinePasteWarning": false,
+    "cmake.showOptionsMovedNotification": false,
+    "workbench.editor.empty.hint": "hidden",
+    "dotnet.projects.enableAutomaticRestore": false,
+    "C_Cpp.autoAddFileAssociations": false,
+    "hexeditor.columnWidth": 16,
+    "hexeditor.showDecodedText": true,
+    "hexeditor.defaultEndianness": "little",
+    "hexeditor.inspectorType": "aside",
+    "excalidraw.theme": "dark",
+    "cmake.pinnedCommands": [
+        "workbench.action.tasks.configureTaskRunner",
+        "workbench.action.tasks.runTask"
+    ],
+    "diffEditor.maxComputationTime": 0,
+    "vscode-pokemon.pokemonSize": "small",
+    "vscode-pokemon.theme": "castle",
+    "docker.extension.enableComposeLanguageServer": false,
+    "[dockercompose]": {
+        "editor.insertSpaces": true,
+        "editor.tabSize": 2,
+        "editor.autoIndent": "advanced",
+        "editor.quickSuggestions": {
+            "other": true,
+            "comments": false,
+            "strings": true
+        },
+        "editor.defaultFormatter": "redhat.vscode-yaml"
+    },
+    "[github-actions-workflow]": {
+        "editor.defaultFormatter": "redhat.vscode-yaml"
+    },
+    "blender.executables": [
+        {
+            "name": "",
+            "path": "C:\\Program Files\\Blender Foundation\\Blender 5.0\\blender.exe",
+            "isDefault": true
+        }
+    ],
+    "chat.viewSessions.orientation": "stacked",
+    "github.copilot.enable": {
+        "*": false,
+        "plaintext": false,
+        "markdown": false,
+        "scminput": false
+    },
+    "copy-path-unixstyle.copyPathWindowsForwardSlashFormatCommand.enable": true,
+    "copy-path-unixstyle.copyPathCommand.enable": false,
+    "explorer.confirmPasteNative": false,
+    "yaml.disableSchemaDetection": [
+        "**/.github/workflows/*.yml",
+        "**/.github/workflows/*.yaml",
+        "**/.gitea/workflows/*.yml",
+        "**/.gitea/workflows/*.yaml",
+        "**/.forgejo/workflows/*.yml",
+        "**/.forgejo/workflows/*.yaml"
+    ],
+    "jdk.telemetry.enabled": true,
+    "powershell.integratedConsole.suppressTerminalStoppedNotification": true,
+    "maven.settingsFile": "~/.m2/settings.xml",
+    "java.configuration.maven.globalSettings": "~/.m2/settings.xml"
+}
